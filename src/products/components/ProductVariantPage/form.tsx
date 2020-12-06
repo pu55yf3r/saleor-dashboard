@@ -9,11 +9,13 @@ import useFormset, {
 } from "@saleor/hooks/useFormset";
 import {
   getAttributeInputFromVariant,
+  getAttributesDisplayData,
   getStockInputFromVariant
 } from "@saleor/products/utils/data";
 import { getChannelsInput } from "@saleor/products/utils/handlers";
 import {
   createAttributeChangeHandler,
+  createAttributeFileChangeHandler,
   createAttributeMultiChangeHandler
 } from "@saleor/products/utils/handlers";
 import {
@@ -43,6 +45,7 @@ export interface ProductVariantUpdateData extends ProductVariantUpdateFormData {
 export interface ProductVariantUpdateSubmitData
   extends ProductVariantUpdateFormData {
   attributes: AttributeInput[];
+  attributesWithNewFileValue: FormsetData<null, File>;
   addStocks: ProductStockInput[];
   channelListings: FormsetData<ChannelPriceData, IChannelPriceArgs>;
   updateStocks: ProductStockInput[];
@@ -53,21 +56,23 @@ export interface UseProductVariantUpdateFormOpts {
   warehouses: SearchWarehouses_search_edges_node[];
   currentChannels: ChannelPriceData[];
 }
+interface ProductUpdateHandlers
+  extends Record<"changeMetadata", FormChange>,
+    Record<
+      | "changeStock"
+      | "selectAttribute"
+      | "selectAttributeMultiple"
+      | "changeChannels",
+      FormsetChange<string>
+    >,
+    Record<"selectAttributeFile", FormsetChange<File>>,
+    Record<"addStock" | "deleteStock", (id: string) => void> {}
 
 export interface UseProductVariantUpdateFormResult {
   change: FormChange;
   data: ProductVariantUpdateData;
   disabled: boolean;
-  handlers: Record<
-    | "changeStock"
-    | "selectAttribute"
-    | "selectAttributeMultiple"
-    | "changeChannels",
-    FormsetChange
-  > &
-    Record<"addStock" | "deleteStock", (id: string) => void> & {
-      changeMetadata: FormChange;
-    };
+  handlers: ProductUpdateHandlers;
   hasChanged: boolean;
   submit: () => void;
 }
@@ -75,8 +80,8 @@ export interface UseProductVariantUpdateFormResult {
 export interface ProductVariantUpdateFormProps
   extends UseProductVariantUpdateFormOpts {
   children: (props: UseProductVariantUpdateFormResult) => React.ReactNode;
-  variant: ProductVariant;
   onSubmit: (data: ProductVariantUpdateSubmitData) => SubmitPromise;
+  variant: ProductVariant;
 }
 
 function useProductVariantUpdateForm(
@@ -101,6 +106,7 @@ function useProductVariantUpdateForm(
 
   const form = useForm(initial);
   const attributes = useFormset(attributeInput);
+  const attributesWithNewFileValue = useFormset<null, File>([]);
   const stocks = useFormset(stockInput);
   const channels = useFormset(channelsInput);
   const {
@@ -121,6 +127,13 @@ function useProductVariantUpdateForm(
   const handleAttributeMultiChange = createAttributeMultiChangeHandler(
     attributes.change,
     attributes.data,
+    triggerChange
+  );
+  const handleAttributeFileChange = createAttributeFileChangeHandler(
+    attributes.change,
+    attributesWithNewFileValue.data,
+    attributesWithNewFileValue.add,
+    attributesWithNewFileValue.remove,
     triggerChange
   );
   const handleStockAdd = (id: string) => {
@@ -163,7 +176,10 @@ function useProductVariantUpdateForm(
   );
   const data: ProductVariantUpdateData = {
     ...form.data,
-    attributes: attributes.data,
+    attributes: getAttributesDisplayData(
+      attributes.data,
+      attributesWithNewFileValue.data
+    ),
     channelListings: channels.data,
     stocks: stocks.data
   };
@@ -172,6 +188,7 @@ function useProductVariantUpdateForm(
     ...getMetadata(form.data, isMetadataModified, isPrivateMetadataModified),
     addStocks,
     attributes: attributes.data,
+    attributesWithNewFileValue: attributesWithNewFileValue.data,
     channelListings: channels.data,
     removeStocks: stockDiff.removed,
     updateStocks
@@ -190,6 +207,7 @@ function useProductVariantUpdateForm(
       changeStock: handleStockChange,
       deleteStock: handleStockDelete,
       selectAttribute: handleAttributeChange,
+      selectAttributeFile: handleAttributeFileChange,
       selectAttributeMultiple: handleAttributeMultiChange
     },
     hasChanged: changed,
